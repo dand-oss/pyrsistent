@@ -1,3 +1,4 @@
+import region_profiler as rp
 from pyrsistent._checked_types import CheckedType, _restore_pickle, InvariantException, store_invariants
 from pyrsistent._field_common import (
     set_fields, check_type, is_field_ignore_extra_complaint, PFIELD_NO_INITIAL, serialize, check_global_invariants
@@ -6,6 +7,7 @@ from pyrsistent._pmap import PMap, pmap
 
 
 class _PRecordMeta(type):
+    rp.func()
     def __new__(mcs, name, bases, dct):
         set_fields(dct, bases, name='_precord_fields')
         store_invariants(dct, bases, '_precord_invariants', '__invariant__')
@@ -30,6 +32,7 @@ class PRecord(PMap, CheckedType, metaclass=_PRecordMeta):
 
     More documentation and examples of PRecord usage is available at https://github.com/tobgu/pyrsistent
     """
+    rp.func()
     def __new__(cls, **kwargs):
         # Hack total! If these two special attributes exist that means we can create
         # ourselves. Otherwise we need to go through the Evolver to create the structures
@@ -52,6 +55,7 @@ class PRecord(PMap, CheckedType, metaclass=_PRecordMeta):
 
         return e.persistent()
 
+    rp.func()
     def set(self, *args, **kwargs):
         """
         Set a field in the record. This set function differs slightly from that in the PMap
@@ -66,12 +70,14 @@ class PRecord(PMap, CheckedType, metaclass=_PRecordMeta):
 
         return self.update(kwargs)
 
+    rp.func()
     def evolver(self):
         """
         Returns an evolver of this object.
         """
         return _PRecordEvolver(self.__class__, self)
 
+    rp.func()
     def __repr__(self):
         return "{0}({1})".format(self.__class__.__name__,
                                  ', '.join('{0}={1}'.format(k, repr(v)) for k, v in self.items()))
@@ -85,18 +91,21 @@ class PRecord(PMap, CheckedType, metaclass=_PRecordMeta):
         :param ignore_extra: A boolean which when set to True will ignore any keys which appear in kwargs that are not
                              in the set of fields on the PRecord.
         """
-        if isinstance(kwargs, cls):
-            return kwargs
+        with rp.region("create()"):
+            if isinstance(kwargs, cls):
+                return kwargs
 
-        if ignore_extra:
-            kwargs = {k: kwargs[k] for k in cls._precord_fields if k in kwargs}
+            if ignore_extra:
+                kwargs = {k: kwargs[k] for k in cls._precord_fields if k in kwargs}
 
-        return cls(_factory_fields=_factory_fields, _ignore_extra=ignore_extra, **kwargs)
+            return cls(_factory_fields=_factory_fields, _ignore_extra=ignore_extra, **kwargs)
 
+    rp.func()
     def __reduce__(self):
         # Pickling support
         return _restore_pickle, (self.__class__, dict(self),)
 
+    rp.func()
     def serialize(self, format=None):
         """
         Serialize the current PRecord using custom serializer functions for fields where
@@ -108,6 +117,7 @@ class PRecord(PMap, CheckedType, metaclass=_PRecordMeta):
 class _PRecordEvolver(PMap._Evolver):
     __slots__ = ('_destination_cls', '_invariant_error_codes', '_missing_fields', '_factory_fields', '_ignore_extra')
 
+    rp.func()
     def __init__(self, cls, original_pmap, _factory_fields=None, _ignore_extra=False):
         super(_PRecordEvolver, self).__init__(original_pmap)
         self._destination_cls = cls
@@ -116,9 +126,11 @@ class _PRecordEvolver(PMap._Evolver):
         self._factory_fields = _factory_fields
         self._ignore_extra = _ignore_extra
 
+    rp.func()
     def __setitem__(self, key, original_value):
         self.set(key, original_value)
 
+    rp.func()
     def set(self, key, original_value):
         field = self._destination_cls._precord_fields.get(key)
         if field:
@@ -145,6 +157,7 @@ class _PRecordEvolver(PMap._Evolver):
         else:
             raise AttributeError("'{0}' is not among the specified fields for {1}".format(key, self._destination_cls.__name__))
 
+    rp.func()
     def persistent(self):
         cls = self._destination_cls
         is_dirty = self.is_dirty()

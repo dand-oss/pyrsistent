@@ -1,3 +1,4 @@
+import region_profiler as rp
 from abc import abstractmethod, ABCMeta
 from collections.abc import Sequence, Hashable
 from numbers import Integral
@@ -5,6 +6,7 @@ import operator
 from pyrsistent._transformations import transform
 
 
+@rp.func()
 def _bitcount(val):
     return bin(val).count("1")
 
@@ -13,10 +15,12 @@ BIT_MASK = BRANCH_FACTOR - 1
 SHIFT = _bitcount(BIT_MASK)
 
 
+@rp.func()
 def compare_pvector(v, other, operator):
     return operator(v.tolist(), other.tolist() if isinstance(other, PVector) else other)
 
 
+@rp.func()
 def _index_or_slice(index, stop):
     if stop is None:
         return index
@@ -30,6 +34,7 @@ class PythonPVector(object):
     """
     __slots__ = ('_count', '_shift', '_root', '_tail', '_tail_offset', '__weakref__')
 
+    @rp.func()
     def __new__(cls, count, shift, root, tail):
         self = super(PythonPVector, cls).__new__(cls)
         self._count = count
@@ -41,9 +46,11 @@ class PythonPVector(object):
         self._tail_offset = self._count - len(self._tail)
         return self
 
+    @rp.func()
     def __len__(self):
         return self._count
 
+    @rp.func(asglobal=True)
     def __getitem__(self, index):
         if isinstance(index, slice):
             # There are more conditions than the below where it would be OK to
@@ -60,38 +67,49 @@ class PythonPVector(object):
 
         return PythonPVector._node_for(self, index)[index & BIT_MASK]
 
+    @rp.func()
     def __add__(self, other):
         return self.extend(other)
 
+    @rp.func()
     def __repr__(self):
         return 'pvector({0})'.format(str(self.tolist()))
 
+    @rp.func()
     def __str__(self):
         return self.__repr__()
 
+    @rp.func()
     def __iter__(self):
         # This is kind of lazy and will produce some memory overhead but it is the fasted method
         # by far of those tried since it uses the speed of the built in python list directly.
         return iter(self.tolist())
 
+    @rp.func()
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    @rp.func()
     def __eq__(self, other):
         return self is other or (hasattr(other, '__len__') and self._count == len(other)) and compare_pvector(self, other, operator.eq)
 
+    @rp.func()
     def __gt__(self, other):
         return compare_pvector(self, other, operator.gt)
 
+    @rp.func()
     def __lt__(self, other):
         return compare_pvector(self, other, operator.lt)
 
+    @rp.func()
     def __ge__(self, other):
         return compare_pvector(self, other, operator.ge)
 
+    @rp.func()
     def __le__(self, other):
         return compare_pvector(self, other, operator.le)
 
+    @rp.func()
     def __mul__(self, times):
         if times <= 0 or self is _EMPTY_PVECTOR:
             return _EMPTY_PVECTOR
@@ -103,6 +121,7 @@ class PythonPVector(object):
 
     __rmul__ = __mul__
 
+    @rp.func()
     def _fill_list(self, node, shift, the_list):
         if shift:
             shift -= SHIFT
@@ -111,6 +130,7 @@ class PythonPVector(object):
         else:
             the_list.extend(node)
 
+    @rp.func()
     def tolist(self):
         """
         The fastest way to convert the vector into a python list.
@@ -120,23 +140,28 @@ class PythonPVector(object):
         the_list.extend(self._tail)
         return the_list
 
+    @rp.func()
     def _totuple(self):
         """
         Returns the content as a python tuple.
         """
         return tuple(self.tolist())
 
+    @rp.func()
     def __hash__(self):
         # Taking the easy way out again...
         return hash(self._totuple())
 
+    @rp.func()
     def transform(self, *transformations):
         return transform(self, transformations)
 
+    @rp.func()
     def __reduce__(self):
         # Pickling support
         return pvector, (self.tolist(),)
 
+    @rp.func()
     def mset(self, *args):
         if len(args) % 2:
             raise TypeError("mset expected an even number of arguments")
@@ -151,9 +176,11 @@ class PythonPVector(object):
         __slots__ = ('_count', '_shift', '_root', '_tail', '_tail_offset', '_dirty_nodes',
                      '_extra_tail', '_cached_leafs', '_orig_pvector')
 
+        @rp.func()
         def __init__(self, v):
             self._reset(v)
 
+        @rp.func()
         def __getitem__(self, index):
             if not isinstance(index, Integral):
                 raise TypeError("'%s' object cannot be interpreted as an index" % type(index).__name__)
@@ -166,6 +193,7 @@ class PythonPVector(object):
 
             return PythonPVector._node_for(self, index)[index & BIT_MASK]
 
+        @rp.func()
         def _reset(self, v):
             self._count = v._count
             self._shift = v._shift
@@ -177,18 +205,22 @@ class PythonPVector(object):
             self._extra_tail = []
             self._orig_pvector = v
 
+        @rp.func()
         def append(self, element):
             self._extra_tail.append(element)
             return self
 
+        @rp.func()
         def extend(self, iterable):
             self._extra_tail.extend(iterable)
             return self
 
+        @rp.func()
         def set(self, index, val):
             self[index] = val
             return self
 
+        @rp.func()
         def __setitem__(self, index, val):
             if not isinstance(index, Integral):
                 raise TypeError("'%s' object cannot be interpreted as an index" % type(index).__name__)
@@ -215,6 +247,7 @@ class PythonPVector(object):
             else:
                 raise IndexError("Index out of range: %s" % (index,))
 
+        @rp.func()
         def _do_set(self, level, node, i, val):
             if id(node) in self._dirty_nodes:
                 ret = node
@@ -231,10 +264,12 @@ class PythonPVector(object):
 
             return ret
 
+        @rp.func()
         def delete(self, index):
             del self[index]
             return self
 
+        @rp.func()
         def __delitem__(self, key):
             if self._orig_pvector:
                 # All structural sharing bets are off, base evolver on _extra_tail only
@@ -245,6 +280,7 @@ class PythonPVector(object):
 
             del self._extra_tail[key]
 
+        @rp.func()
         def persistent(self):
             result = self._orig_pvector
             if self.is_dirty():
@@ -253,15 +289,19 @@ class PythonPVector(object):
 
             return result
 
+        @rp.func()
         def __len__(self):
             return self._count + len(self._extra_tail)
 
+        @rp.func()
         def is_dirty(self):
             return bool(self._dirty_nodes or self._extra_tail)
 
+    @rp.func()
     def evolver(self):
         return PythonPVector.Evolver(self)
 
+    @rp.func()
     def set(self, i, val):
         # This method could be implemented by a call to mset() but doing so would cause
         # a ~5 X performance penalty on PyPy (considered the primary platform for this implementation
@@ -286,6 +326,7 @@ class PythonPVector(object):
 
         raise IndexError("Index out of range: %s" % (i,))
 
+    @rp.func()
     def _do_set(self, level, node, i, val):
         ret = list(node)
         if level == 0:
@@ -310,6 +351,7 @@ class PythonPVector(object):
 
         raise IndexError("Index out of range: %s" % (i,))
 
+    @rp.func()
     def _create_new_root(self):
         new_shift = self._shift
 
@@ -322,6 +364,7 @@ class PythonPVector(object):
 
         return new_root, new_shift
 
+    @rp.func()
     def append(self, val):
         if len(self._tail) < BRANCH_FACTOR:
             new_tail = list(self._tail)
@@ -332,16 +375,19 @@ class PythonPVector(object):
         new_root, new_shift = self._create_new_root()
         return PythonPVector(self._count + 1, new_shift, new_root, [val])
 
+    @rp.func()
     def _new_path(self, level, node):
         if level == 0:
             return node
 
         return [self._new_path(level - SHIFT, node)]
 
+    @rp.func()
     def _mutating_insert_tail(self):
         self._root, self._shift = self._create_new_root()
         self._tail = []
 
+    @rp.func()
     def _mutating_fill_tail(self, offset, sequence):
         max_delta_len = BRANCH_FACTOR - len(self._tail)
         delta = sequence[offset:offset + max_delta_len]
@@ -350,6 +396,7 @@ class PythonPVector(object):
         self._count += delta_len
         return offset + delta_len
 
+    @rp.func()
     def _mutating_extend(self, sequence):
         offset = 0
         sequence_len = len(sequence)
@@ -360,6 +407,7 @@ class PythonPVector(object):
 
         self._tail_offset = self._count - len(self._tail)
 
+    @rp.func()
     def extend(self, obj):
         # Mutates the new vector directly for efficiency but that's only an
         # implementation detail, once it is returned it should be considered immutable
@@ -371,6 +419,7 @@ class PythonPVector(object):
 
         return self
 
+    @rp.func()
     def _push_tail(self, level, parent, tail_node):
         """
         if parent is leaf, insert node,
@@ -394,17 +443,21 @@ class PythonPVector(object):
         ret.append(self._new_path(level - SHIFT, tail_node))
         return ret
 
+    @rp.func()
     def index(self, value, *args, **kwargs):
         return self.tolist().index(value, *args, **kwargs)
 
+    @rp.func()
     def count(self, value):
         return self.tolist().count(value)
 
+    @rp.func()
     def delete(self, index, stop=None):
         l = self.tolist()
         del l[_index_or_slice(index, stop)]
         return _EMPTY_PVECTOR.extend(l)
 
+    @rp.func()
     def remove(self, value):
         l = self.tolist()
         l.remove(value)
@@ -678,6 +731,7 @@ PVector.register(PythonPVector)
 Sequence.register(PVector)
 Hashable.register(PVector)
 
+@rp.func()
 def python_pvector(iterable=()):
     """
     Create a new persistent vector containing the elements in iterable.
@@ -700,6 +754,7 @@ except ImportError:
     pvector = python_pvector
 
 
+@rp.func()
 def v(*elements):
     """
     Create a new persistent vector containing all parameters to this function.
