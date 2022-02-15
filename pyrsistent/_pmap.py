@@ -1,3 +1,4 @@
+import region_profiler as rp
 from collections.abc import Mapping, Hashable
 from itertools import chain
 from typing import Generic, TypeVar
@@ -65,16 +66,16 @@ class PMapValues(PMapView):
     # The str and repr methods imitate the dict_view style currently.
     def __str__(self):
         return f"pmap_values({list(iter(self))})"
-    
+
     def __repr__(self):
         return f"pmap_values({list(iter(self))})"
-    
+
     def __eq__(self, x):
         # For whatever reason, dict_values always seem to return False for ==
         # (probably it's not implemented), so we mimic that.
         if x is self: return True
         else: return False
-    
+
 class PMapItems(PMapView):
     """View type for the items of the persistent map/dict type `PMap`.
 
@@ -98,10 +99,10 @@ class PMapItems(PMapView):
     # The str and repr methods mitate the dict_view style currently.
     def __str__(self):
         return f"pmap_items({list(iter(self))})"
-    
+
     def __repr__(self):
         return f"pmap_items({list(iter(self))})"
-        
+
     def __eq__(self, x):
         if x is self: return True
         elif not isinstance(x, type(self)): return False
@@ -147,6 +148,7 @@ class PMap(Generic[KT, VT_co]):
     """
     __slots__ = ('_size', '_buckets', '__weakref__', '_cached_hash')
 
+    @rp.func()
     def __new__(cls, size, buckets):
         self = super(PMap, cls).__new__(cls)
         self._size = size
@@ -155,40 +157,46 @@ class PMap(Generic[KT, VT_co]):
 
     @staticmethod
     def _get_bucket(buckets, key):
-        index = hash(key) % len(buckets)
-        bucket = buckets[index]
-        return index, bucket
+        with rp.region("_get_bucket()"):
+            index = hash(key) % len(buckets)
+            bucket = buckets[index]
+            return index, bucket
 
     @staticmethod
     def _getitem(buckets, key):
-        _, bucket = PMap._get_bucket(buckets, key)
-        if bucket:
-            for k, v in bucket:
-                if k == key:
-                    return v
+        with rp.region("_getitem()", asglobal=True):
+            _, bucket = PMap._get_bucket(buckets, key)
+            if bucket:
+                for k, v in bucket:
+                    if k == key:
+                        return v
 
-        raise KeyError(key)
+            raise KeyError(key)
 
+    @rp.func(asglobal=True)
     def __getitem__(self, key):
         return PMap._getitem(self._buckets, key)
 
     @staticmethod
     def _contains(buckets, key):
-        _, bucket = PMap._get_bucket(buckets, key)
-        if bucket:
-            for k, _ in bucket:
-                if k == key:
-                    return True
+        with rp.region("_contains()", asglobal=True):
+            _, bucket = PMap._get_bucket(buckets, key)
+            if bucket:
+                for k, _ in bucket:
+                    if k == key:
+                        return True
+
+                return False
 
             return False
 
-        return False
-
+    @rp.func()
     def __contains__(self, key):
         return self._contains(self._buckets, key)
 
     get = Mapping.get
 
+    @rp.func()
     def __iter__(self):
         return self.iterkeys()
 
@@ -198,6 +206,7 @@ class PMap(Generic[KT, VT_co]):
     def __reversed__(self):
         raise TypeError("Persistent maps are not reversible")
 
+    @rp.func(asglobal=True)
     def __getattr__(self, key):
         try:
             return self[key]
@@ -206,6 +215,7 @@ class PMap(Generic[KT, VT_co]):
                 "{0} has no attribute '{1}'".format(type(self).__name__, key)
             ) from e
 
+    @rp.func()
     def iterkeys(self):
         for k, _ in self.iteritems():
             yield k
@@ -213,32 +223,40 @@ class PMap(Generic[KT, VT_co]):
     # These are more efficient implementations compared to the original
     # methods that are based on the keys iterator and then calls the
     # accessor functions to access the value for the corresponding key
+    @rp.func()
     def itervalues(self):
         for _, v in self.iteritems():
             yield v
 
+    @rp.func()
     def iteritems(self):
         for bucket in self._buckets:
             if bucket:
                 for k, v in bucket:
                     yield k, v
 
+    @rp.func()
     def values(self):
         return PMapValues(self)
 
+    @rp.func()
     def keys(self):
         from ._pset import PSet
         return PSet(self)
 
+    @rp.func()
     def items(self):
         return PMapItems(self)
 
+    @rp.func()
     def __len__(self):
         return self._size
 
+    @rp.func()
     def __repr__(self):
         return 'pmap({0})'.format(str(dict(self)))
 
+    @rp.func()
     def __eq__(self, other):
         if self is other:
             return True
@@ -259,6 +277,7 @@ class PMap(Generic[KT, VT_co]):
 
     __ne__ = Mapping.__ne__
 
+    @rp.func()
     def __lt__(self, other):
         raise TypeError('PMaps are not orderable')
 
@@ -266,14 +285,17 @@ class PMap(Generic[KT, VT_co]):
     __gt__ = __lt__
     __ge__ = __lt__
 
+    @rp.func()
     def __str__(self):
         return self.__repr__()
 
+    @rp.func()
     def __hash__(self):
         if not hasattr(self, '_cached_hash'):
             self._cached_hash = hash(frozenset(self.iteritems()))
         return self._cached_hash
 
+    @rp.func()
     def set(self, key, val):
         """
         Return a new PMap with key and val inserted.
@@ -290,6 +312,7 @@ class PMap(Generic[KT, VT_co]):
         """
         return self.evolver().set(key, val).persistent()
 
+    @rp.func()
     def remove(self, key):
         """
         Return a new PMap without the element specified by key. Raises KeyError if the element
@@ -301,6 +324,7 @@ class PMap(Generic[KT, VT_co]):
         """
         return self.evolver().remove(key).persistent()
 
+    @rp.func()
     def discard(self, key):
         """
         Return a new PMap without the element specified by key. Returns reference to itself
@@ -317,6 +341,7 @@ class PMap(Generic[KT, VT_co]):
         except KeyError:
             return self
 
+    @rp.func()
     def update(self, *maps):
         """
         Return a new PMap with the items in Mappings inserted. If the same key is present in multiple
@@ -328,6 +353,7 @@ class PMap(Generic[KT, VT_co]):
         """
         return self.update_with(lambda l, r: r, *maps)
 
+    @rp.func()
     def update_with(self, update_fn, *maps):
         """
         Return a new PMap with the items in Mappings maps inserted. If the same key is present in multiple
@@ -351,15 +377,18 @@ class PMap(Generic[KT, VT_co]):
 
         return evolver.persistent()
 
+    @rp.func()
     def __add__(self, other):
         return self.update(other)
 
     __or__ = __add__
 
+    @rp.func()
     def __reduce__(self):
         # Pickling support
         return pmap, (dict(self),)
 
+    @rp.func()
     def transform(self, *transformations):
         """
         Transform arbitrarily complex combinations of PVectors and PMaps. A transformation
@@ -388,23 +417,28 @@ class PMap(Generic[KT, VT_co]):
         """
         return transform(self, transformations)
 
+    @rp.func()
     def copy(self):
         return self
 
     class _Evolver(object):
         __slots__ = ('_buckets_evolver', '_size', '_original_pmap')
 
+        @rp.func()
         def __init__(self, original_pmap):
             self._original_pmap = original_pmap
             self._buckets_evolver = original_pmap._buckets.evolver()
             self._size = original_pmap._size
 
+        @rp.func()
         def __getitem__(self, key):
             return PMap._getitem(self._buckets_evolver, key)
 
+        @rp.func()
         def __setitem__(self, key, val):
             self.set(key, val)
 
+        @rp.func()
         def set(self, key, val):
             kv = (key, val)
             index, bucket = PMap._get_bucket(self._buckets_evolver, key)
@@ -439,6 +473,7 @@ class PMap(Generic[KT, VT_co]):
 
             return self
 
+        @rp.func()
         def _reallocate(self):
             new_size = 2 * len(self._buckets_evolver)
             new_list = new_size * [None]
@@ -455,24 +490,30 @@ class PMap(Generic[KT, VT_co]):
             self._buckets_evolver = pvector().evolver()
             self._buckets_evolver.extend(new_list)
 
+        @rp.func()
         def is_dirty(self):
             return self._buckets_evolver.is_dirty()
 
+        @rp.func()
         def persistent(self):
             if self.is_dirty():
                 self._original_pmap = PMap(self._size, self._buckets_evolver.persistent())
 
             return self._original_pmap
 
+        @rp.func()
         def __len__(self):
             return self._size
 
+        @rp.func()
         def __contains__(self, key):
             return PMap._contains(self._buckets_evolver, key)
 
+        @rp.func()
         def __delitem__(self, key):
             self.remove(key)
 
+        @rp.func()
         def remove(self, key):
             index, bucket = PMap._get_bucket(self._buckets_evolver, key)
 
@@ -487,6 +528,7 @@ class PMap(Generic[KT, VT_co]):
 
             raise KeyError('{0}'.format(key))
 
+    @rp.func()
     def evolver(self):
         """
         Create a new evolver for this pmap. For a discussion on evolvers in general see the
@@ -522,6 +564,7 @@ Mapping.register(PMap)
 Hashable.register(PMap)
 
 
+@rp.func()
 def _turbo_mapping(initial, pre_size):
     if pre_size:
         size = pre_size
@@ -557,6 +600,7 @@ def _turbo_mapping(initial, pre_size):
 _EMPTY_PMAP = _turbo_mapping({}, 0)
 
 
+@rp.func()
 def pmap(initial={}, pre_size=0):
     """
     Create new persistent map, inserts all elements in initial into the newly created map.
@@ -573,6 +617,7 @@ def pmap(initial={}, pre_size=0):
     return _turbo_mapping(initial, pre_size)
 
 
+@rp.func()
 def m(**kwargs):
     """
     Creates a new persistent map. Inserts all key value arguments into the newly created map.
